@@ -1,0 +1,10 @@
+class Config:
+    CAMERA = True
+    GHOST = False
+
+    SCREEN_WIDTH = 240
+    SCREEN_CAMERA_WIDTH = 480
+    SCREEN_HEIGHT = 240
+
+    CAMERA_WIDTH = 200
+    CAMERA_HEIGHT = 200
