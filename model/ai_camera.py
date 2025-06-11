@@ -79,7 +79,8 @@ class AICamera:
         self.last_detected_time = time.time()
 
         self.shared_tetromino = None
-        
+        self.shared_labels = None
+
         self.mode = "pose"  # デフォルトを物体検出に変更
 
         self.imx500 = None
@@ -199,11 +200,16 @@ class AICamera:
             # 物体検出の場合
             detected_objects = self._ai_output_tensor_parse_objects(request.get_metadata())
             if detected_objects is not None and len(detected_objects) > 0:
+                self.last_detected_time = time.time()
                 with MappedArray(request, stream='main') as m:
                     img_height, img_width = m.array.shape[:2]
                     self.shared_tetromino = self._create_tetromino_from_objects(detected_objects, img_width, img_height)
             else:
-                self.shared_tetromino = None
+                if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
+                    self.shared_tetromino = None
+        
+        if self.shared_tetromino is None:
+            self.shared_labels = None           
 
         # pyxel画像化
         frame = request.make_array("main")
@@ -277,9 +283,9 @@ class AICamera:
                             'box': box
                         })
                 
-                # スコア順でソート、上位3つまで
+                # スコア順でソート、上位2つまで
                 detected_objects.sort(key=lambda x: x['score'], reverse=True)
-                self.last_detected_objects = detected_objects[:3]
+                self.last_detected_objects = detected_objects[:2]
                 
                 return self.last_detected_objects
         
@@ -291,23 +297,33 @@ class AICamera:
         if not detected_objects:
             return None
         
-        # 最大3つまでの物体を処理
-        objects_to_process = detected_objects[:3]
+        # 最大2つまでの物体を処理
+        objects_to_process = detected_objects[:2]
         
         # 検出された物体に対応するテトロミノを取得
         tetrominoes = []
+        labels = ""
         for obj in objects_to_process:
             class_id = obj['class_id']
             if class_id in AICamera.OBJECT_TO_TETROMINO:
                 print(f"{class_id} - {AICamera.OBJECT_TO_LABEL[class_id]} {obj['score']:.2f}")
+
+                if len(labels) > 0:
+                    labels = labels + " / "
+                labels = labels + AICamera.OBJECT_TO_LABEL[class_id]
                     
                 tetromino_type = AICamera.OBJECT_TO_TETROMINO[class_id]
                 tetromino = Tetromino.create(tetromino_type)
                 tetrominoes.append(tetromino)
         
         if not tetrominoes:
-            return None
+            if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
+                return None            
+            
+            return self.shared_tetromino
         
+        self.shared_labels = labels
+
         # 1つのテトロミノの場合はそのまま返す
         if len(tetrominoes) == 1:
             return tetrominoes[0]
@@ -336,11 +352,6 @@ class AICamera:
                 return self._place_single_tetromino_fast(tetrominoes[0])
             elif len(tetrominoes) == 2:
                 return self._merge_two_tetrominoes_fast(tetrominoes[0], tetrominoes[1])
-            elif len(tetrominoes) == 3:
-                return self._merge_three_tetrominoes_fast(tetrominoes[0], tetrominoes[1], tetrominoes[2])
-            else:
-                # 3つ以上は最初の3つのみ使用
-                return self._merge_three_tetrominoes_fast(tetrominoes[0], tetrominoes[1], tetrominoes[2])
     
     def _place_single_tetromino_fast(self, tetromino):
         """単一テトロミノの高速配置"""
@@ -378,18 +389,6 @@ class AICamera:
         
         # パターンマッチしない場合は単純配置
         return self._simple_placement([shape1, shape2])
-    
-    def _merge_three_tetrominoes_fast(self, tetromino1, tetromino2, tetromino3):
-        """3つのテトロミノの高速合体"""
-        shapes = [np.array(t.get_shape()) for t in [tetromino1, tetromino2, tetromino3]]
-        
-        # 事前定義パターンを高速テスト（最大3パターンのみ）
-        for pattern in self.three_piece_patterns[:3]:
-            if self._test_three_pattern_fast(shapes, pattern):
-                return self._place_three_shapes_fast(shapes, pattern)
-        
-        # パターンマッチしない場合は単純配置
-        return self._simple_placement(shapes)
     
     def _can_place_fast(self, shape, pos, h, w):
         """高速境界チェック"""
@@ -513,7 +512,9 @@ class AICamera:
 
         # 有効なキーポイントが見つからなかった場合はNoneを返す
         if not valid_keypoints_found or np.sum(grid) == 0:
-            return None  
+            if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
+                return None                 
+            return self.shared_tetromino  
 
         rotations = self._create_rotations(grid)
         tetromino = Tetromino(rotations, 7 + random.choice(list(range(7))))
@@ -542,7 +543,9 @@ class AICamera:
         with self.lock:
             frame = self.shared_frame.copy() if self.shared_frame is not None else None
         return frame
-
+    def get_labels(self):
+        return self.shared_labels
+    
     def get_tetromino(self):
         if self.shared_tetromino is None:
             return None

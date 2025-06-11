@@ -285,7 +285,6 @@ class Renderer:
 
         if tetromino is not None:
 
-
             # テトロミノを中央に配置するためのオフセット計算
             tetromino_width = tetromino.get_width()
             tetromino_height = tetromino.get_height()
@@ -306,3 +305,13 @@ class Renderer:
                 pyxel.dither(alpha)
                 pyxel.rect(259, 19, Config.CAMERA_WIDTH, Config.CAMERA_HEIGHT, 7)  # 背景を黒に設定
                 pyxel.dither(1.0)
+
+            # ラベルの描画
+        label = camera.get_labels()
+        if label is not None:
+
+            pyxel.dither(0.5)
+            pyxel.rect(260, Config.CAMERA_HEIGHT -4, Config.CAMERA_WIDTH, 12, 0)  # 背景を黒に設定
+            pyxel.dither(1.0)
+
+            pyxel.text(259 + (Config.CAMERA_WIDTH -len(label) * 4) / 2 , Config.CAMERA_HEIGHT , label, 7)
