@@ -20,7 +20,6 @@ class AICamera:
     DETECTION_THRESHOLD = 0.3
     KEYPOINT_THRESHOLD = 0.4
     OBJECT_THRESHOLD = 0.51
-    CAMERA_SIZE_H_W = (320, 240)
 
     BLOCK_TIMEOUT = 2 #(seconds)
 
@@ -80,6 +79,7 @@ class AICamera:
 
         self.shared_tetromino = None
         self.shared_labels = None
+        self.shared_boxes = None
 
         self.mode = "pose"  # デフォルトを物体検出に変更
 
@@ -146,7 +146,7 @@ class AICamera:
 
         self.picam2 = Picamera2(self.imx500.camera_num)
         config = self.picam2.create_preview_configuration(
-            main={"format": "RGB888", "size": AICamera.CAMERA_SIZE_H_W},
+            main={"format": "RGB888", "size": (Config.CAMERA_WIDTH, Config.CAMERA_HEIGHT)},
             controls={'FrameRate': 30}, 
             buffer_count=12)
         #self.imx500.show_network_fw_progress_bar()
@@ -209,7 +209,8 @@ class AICamera:
                     self.shared_tetromino = None
         
         if self.shared_tetromino is None:
-            self.shared_labels = None           
+            self.shared_labels = None
+            self.shared_boxes = None  
 
         # pyxel画像化
         frame = request.make_array("main")
@@ -218,7 +219,7 @@ class AICamera:
         top = (h - min_side) // 2
         left = (w - min_side) // 2
         cropped = frame[top:top + min_side, left:left + min_side]
-        resized = np.array(Image.fromarray(cropped).resize((Config.CAMERA_WIDTH, Config.CAMERA_HEIGHT), Image.BILINEAR))
+        resized = np.array(Image.fromarray(cropped).resize((Config.CAMERA_VIEW_WIDTH, Config.CAMERA_VIEW_HEIGHT), Image.BILINEAR))
 
         with self.lock:
             self.shared_frame = resized
@@ -228,7 +229,7 @@ class AICamera:
         np_outputs = self.imx500.get_outputs(metadata=metadata, add_batch=True)
         if np_outputs is not None:
             keypoints, scores, boxes = postprocess_higherhrnet(outputs=np_outputs,
-                                                            img_size=AICamera.CAMERA_SIZE_H_W,
+                                                            img_size=(Config.CAMERA_WIDTH, Config.CAMERA_HEIGHT),
                                                             img_w_pad=(0, 0),
                                                             img_h_pad=(0, 0),
                                                             detection_threshold=AICamera.DETECTION_THRESHOLD,
@@ -262,7 +263,7 @@ class AICamera:
                 classes = np_outputs[2]
                 
                 detected_objects = []
-                
+
                 # 閾値以上のスコアを持つ検出結果のみを処理
                 for i in range(len(scores[0])):
                     if scores[0][i] >= AICamera.OBJECT_THRESHOLD:
@@ -276,17 +277,18 @@ class AICamera:
 
                         if score < AICamera.OBJECT_THRESHOLD:
                             continue
-                        
+            
                         detected_objects.append({
                             'class_id': class_id,
                             'score': score,
-                            'box': box
+                            'box': self.imx500.convert_inference_coords(box, metadata, self.picam2)
                         })
+                        
                 
                 # スコア順でソート、上位2つまで
                 detected_objects.sort(key=lambda x: x['score'], reverse=True)
                 self.last_detected_objects = detected_objects[:2]
-                
+
                 return self.last_detected_objects
         
         return None
@@ -303,18 +305,23 @@ class AICamera:
         # 検出された物体に対応するテトロミノを取得
         tetrominoes = []
         labels = ""
+        boxes = []
         for obj in objects_to_process:
             class_id = obj['class_id']
             if class_id in AICamera.OBJECT_TO_TETROMINO:
-                print(f"{class_id} - {AICamera.OBJECT_TO_LABEL[class_id]} {obj['score']:.2f}")
+                #print(f"{class_id} - {AICamera.OBJECT_TO_LABEL[class_id]} {obj['score']:.2f}")
 
                 if len(labels) > 0:
                     labels = labels + " / "
                 labels = labels + AICamera.OBJECT_TO_LABEL[class_id]
-                    
+                
+                boxes.append(obj['box'])
+                
                 tetromino_type = AICamera.OBJECT_TO_TETROMINO[class_id]
                 tetromino = Tetromino.create(tetromino_type)
                 tetrominoes.append(tetromino)
+
+     
         
         if not tetrominoes:
             if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
@@ -323,6 +330,7 @@ class AICamera:
             return self.shared_tetromino
         
         self.shared_labels = labels
+        self.shared_boxes = boxes
 
         # 1つのテトロミノの場合はそのまま返す
         if len(tetrominoes) == 1:
@@ -545,6 +553,9 @@ class AICamera:
         return frame
     def get_labels(self):
         return self.shared_labels
+    
+    def get_boxes(self):
+        return self.shared_boxes
     
     def get_tetromino(self):
         if self.shared_tetromino is None:
