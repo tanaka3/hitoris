@@ -12,6 +12,7 @@ class KeyConfig(Enum):
     RIGHT_ROTAITION  = {"key":pyxel.KEY_X, "btn": pyxel.GAMEPAD1_BUTTON_B}
     START = {"key": pyxel.KEY_SPACE, "btn": pyxel.GAMEPAD1_BUTTON_START}
     EXIT = {"key": pyxel.KEY_ESCAPE, "btn": pyxel.GAMEPAD1_BUTTON_BACK}
+    SELECT = {"key": pyxel.KEY_TAB, "btn": pyxel.GAMEPAD1_BUTTON_BACK}
 
     @property
     def key(self):

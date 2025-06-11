@@ -18,6 +18,8 @@ class TetrisApp:
         pyxel.init(Config.SCREEN_CAMERA_WIDTH if Config.CAMERA else Config.SCREEN_WIDTH, 
                     Config.SCREEN_WIDTH, title="HITORIS", fps=60)
         pyxel.load("hitoris.pyxres")  # リソースファイルをロード
+        #pyxel.fullscreen(True) 
+        
         # ゲームの状態
         self.is_title_screen = True
         self.is_loading = False
@@ -36,6 +38,7 @@ class TetrisApp:
             self.loading_view = LoadingView()
             self.is_loading = True
             self.camera = AICamera()
+            self.mode = "pose"
 
             self.game.set_camera(self.camera)
         
@@ -50,9 +53,11 @@ class TetrisApp:
     
     def update(self):
         # ESCキーでゲーム終了
-        if InputHandler.is_key_pressed(KeyConfig.EXIT):
+        #if InputHandler.is_key_pressed(KeyConfig.EXIT):
+        #    pyxel.quit()
+        if pyxel.btnp(pyxel.KEY_ESCAPE):
             pyxel.quit()
-            
+
         # タイトル画面の処理
         if self.is_loading:
             self.loading_view.update() 
@@ -60,6 +65,7 @@ class TetrisApp:
             if self.camera.is_model_loaded():
                 self.is_loading = False
                 self.is_title_screen = True
+        
 
         elif self.is_title_screen:
             if InputHandler.is_key_pressed(KeyConfig.START):
@@ -67,6 +73,15 @@ class TetrisApp:
                 self.is_title_screen = False
                 self.game.start()
 
+            if Config.CAMERA and InputHandler.is_key_pressed(KeyConfig.SELECT):
+                self.mode = "obj" if self.mode == "pose" else "pose"
+
+                if self.camera.set_model(self.mode):
+
+                    self.title_view.mode = self.mode
+                    self.is_title_screen = False
+                    self.is_loading = True
+                
             self.title_view.update()
         # ゲーム画面の処理
         else:
