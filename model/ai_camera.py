@@ -8,6 +8,7 @@ from PIL import Image
 import numpy as np
 import threading
 import random
+import time
 from model.tetromino import Tetromino
 
 from picamera2 import CompletedRequest, MappedArray, Picamera2
@@ -20,6 +21,8 @@ class AICamera:
     KEYPOINT_THRESHOLD = 0.4
     OBJECT_THRESHOLD = 0.51
     CAMERA_SIZE_H_W = (320, 240)
+
+    BLOCK_TIMEOUT = 2 #(seconds)
 
     MODEL_POSE_ESTIMATION = "/usr/share/imx500-models/imx500_network_higherhrnet_coco.rpk"
     MODEL_OBJECT_DETECTION = "/usr/share/imx500-models/imx500_network_ssd_mobilenetv2_fpnlite_320x320_pp.rpk"
@@ -73,6 +76,7 @@ class AICamera:
         self.last_boxes = None
         self.last_scores = None
         self.last_keypoints = None
+        self.last_detected_time = time.time()
 
         self.shared_tetromino = None
         
@@ -189,6 +193,8 @@ class AICamera:
                 if keypoints is not None and len(keypoints) > 0:
                     img_height, img_width = m.array.shape[:2]
                     self.shared_tetromino = self._create_occupancy_grid(keypoints, img_width, img_height)
+                else:
+                    self.shared_tetromino = None
         else:
             # 物体検出の場合
             detected_objects = self._ai_output_tensor_parse_objects(request.get_metadata())
@@ -196,7 +202,8 @@ class AICamera:
                 with MappedArray(request, stream='main') as m:
                     img_height, img_width = m.array.shape[:2]
                     self.shared_tetromino = self._create_tetromino_from_objects(detected_objects, img_width, img_height)
-            pass
+            else:
+                self.shared_tetromino = None
 
         # pyxel画像化
         frame = request.make_array("main")
@@ -225,6 +232,12 @@ class AICamera:
                 self.last_keypoints = np.reshape(np.stack(keypoints, axis=0), (len(scores), 17, 3))
                 self.last_boxes = [np.array(b) for b in boxes]
                 self.last_scores = np.array(scores)
+                self.last_detected_time = time.time()
+        else:
+            if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
+                self.last_keypoints = None
+                self.last_boxes = None
+                self.last_scores = None
 
         return self.last_boxes, self.last_scores, self.last_keypoints
 
@@ -264,9 +277,9 @@ class AICamera:
                             'box': box
                         })
                 
-                # スコア順でソート、上位2つまで
+                # スコア順でソート、上位3つまで
                 detected_objects.sort(key=lambda x: x['score'], reverse=True)
-                self.last_detected_objects = detected_objects[:2]
+                self.last_detected_objects = detected_objects[:3]
                 
                 return self.last_detected_objects
         
@@ -278,8 +291,8 @@ class AICamera:
         if not detected_objects:
             return None
         
-        # 最大2つまでの物体を処理
-        objects_to_process = detected_objects[:2]
+        # 最大3つまでの物体を処理
+        objects_to_process = detected_objects[:3]
         
         # 検出された物体に対応するテトロミノを取得
         tetrominoes = []
@@ -293,8 +306,7 @@ class AICamera:
                 tetrominoes.append(tetromino)
         
         if not tetrominoes:
-            # 対応するテトロミノがない場合はランダム
-            return Tetromino.create(random.randint(0, 6))
+            return None
         
         # 1つのテトロミノの場合はそのまま返す
         if len(tetrominoes) == 1:
@@ -437,14 +449,6 @@ class AICamera:
                 if shape_y < h and shape_x < w and shape[shape_y, shape_x] == 1:
                     grid[y, x] = 1
     
-    def _test_three_pattern_fast(self, shapes, pattern):
-        """3つのパターンの高速テスト"""
-        for shape, pos in zip(shapes, pattern):
-            h, w = shape.shape
-            if not self._can_place_fast(shape, pos, h, w):
-                return False
-        return True
-    
     def _simple_placement(self, shapes):
         """単純配置（フォールバック）"""
         grid = np.zeros((self.GRID_SIZE, self.GRID_SIZE), dtype=np.int32)
@@ -462,6 +466,28 @@ class AICamera:
         
         return grid
     
+    def _get_grid_position(self, keypoint, img_width, img_height):
+        """
+        キーポイントの位置をグリッド上の座標に変換する
+        キーポイントは正規化して離散化することで、同じポーズなら同じグリッド位置になるようにする
+        """
+        # COCOの17キーポイント：
+        # 0: 鼻, 1-4: 目と耳(左右), 5: 左肩, 6: 右肩, 7: 左肘, 8: 右肘, 
+        # 9: 左手首, 10: 右手首, 11: 左腰, 12: 右腰, 13: 左膝, 14: 右膝,
+        # 15: 左足首, 16: 右足首
+        
+        x, y, confidence = keypoint
+        
+        # 画像サイズに対して相対的な位置を計算（0〜1の範囲）
+        norm_x = min(max(x / img_width, 0), 1)
+        norm_y = min(max(y / img_height, 0), 1)
+        
+        # グリッド座標に変換（0〜GRID_SIZE-1の範囲）
+        grid_x = min(int(norm_x * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+        grid_y = min(int(norm_y * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+        
+        return grid_x, grid_y
+        
     def _create_occupancy_grid(self, keypoints, img_width, img_height):
         """複数の人物のキーポイントからグリッドの占有状態を作成"""
         # 4x4のグリッドを初期化（すべて0）
