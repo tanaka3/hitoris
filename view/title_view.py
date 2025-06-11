@@ -6,6 +6,7 @@ class TitleView:
         self.t = 0
         self.logo_y = 65
         self.particles = []
+        self.mode = "pose"
         
         # パーティクル生成
         for i in range(30):
@@ -20,11 +21,11 @@ class TitleView:
  
         self.font_map = {
             'H': [
-                "1 0 0 0 1",
-                "1 0 0 0 1",
-                "1 1 1 1 1",
-                "1 0 0 0 1",
-                "1 0 0 0 1",
+                "1 0 0 1",
+                "1 0 0 1",
+                "1 1 1 1",
+                "1 0 0 1",
+                "1 0 0 1",
             ],
             'I': [
                 "1 1 1",
@@ -61,6 +62,20 @@ class TitleView:
                 "0 0 1",
                 "1 1 0",
             ],
+            'B': [
+                "1 1 0",
+                "1 0 1",
+                "1 1 0",
+                "1 0 1",
+                "1 1 1",
+            ], 
+            'J': [
+                "0 1 1",
+                "0 0 1",
+                "0 0 1",
+                "1 0 1",
+                "1 1 1",
+            ],                      
         }
 
         # より鮮やかな色使い
@@ -124,9 +139,8 @@ class TitleView:
         pyxel.text((pyxel.width - len(sub_titie) *4)//2, 50, sub_titie, subtitle_color)
 
         # タイトルを描画
-        self.draw_block_text_centered(self.logo_y, "HITORIS", 7)
-
-
+        title = "HITORIS" if self.mode == "pose" else "OBJRIS"
+        self.draw_block_text_centered(self.logo_y, title, 7)
 
         # スタート指示（バウンドとカラーサイクル効果）
         prompt_text = "PRESS BUTTON TO START"
@@ -144,7 +158,7 @@ class TitleView:
 
 
         # バージョン情報
-        pyxel.text(pyxel.width - 30, pyxel.height - 10, "v0.0.1", 5)
+        pyxel.text(pyxel.width - 30, pyxel.height - 10, "v0.0.2", 5)
 
     def draw_block_text_centered(self, y, text, block_size):
         total_width = 0
