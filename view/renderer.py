@@ -285,7 +285,6 @@ class Renderer:
 
         if tetromino is not None:
 
-
             # テトロミノを中央に配置するためのオフセット計算
             tetromino_width = tetromino.get_width()
             tetromino_height = tetromino.get_height()
@@ -304,5 +303,37 @@ class Renderer:
             if shutter > 0:
                 alpha = 1 - math.sin(math.pi * shutter / 60)
                 pyxel.dither(alpha)
-                pyxel.rect(259, 19, Config.CAMERA_WIDTH, Config.CAMERA_HEIGHT, 7)  # 背景を黒に設定
+                pyxel.rect(259, 19, Config.CAMERA_VIEW_WIDTH, Config.CAMERA_VIEW_HEIGHT, 7)  # 背景を黒に設定
                 pyxel.dither(1.0)
+
+        # 認識しているボックスを表示
+        boxs = camera.get_boxes()
+        if boxs is not None:
+            offset_x = (Config.CAMERA_WIDTH - Config.CAMERA_VIEW_WIDTH ) / 2
+            offset_y = (Config.CAMERA_HEIGHT - Config.CAMERA_VIEW_HEIGHT ) /2
+            for box in boxs:
+                x, y, w, h = box
+                x  = x  - offset_x
+                if x < 0:
+                    x = 0
+                y = y  - offset_y
+                if y < 0:
+                    y = 0
+                w = w 
+                h = h 
+                if x + w > Config.CAMERA_VIEW_WIDTH:
+                    w = w - (x + w -Config.CAMERA_VIEW_WIDTH)
+                if y + h > Config.CAMERA_VIEW_HEIGHT:
+                    h = h - (y + h -Config.CAMERA_VIEW_HEIGHT)
+
+                pyxel.rectb(260 + x, 20 + y, w, h, 3)
+
+        # ラベルの描画
+        label = camera.get_labels()
+        if label is not None:
+
+            pyxel.dither(0.5)
+            pyxel.rect(260, Config.CAMERA_VIEW_HEIGHT -4, Config.CAMERA_VIEW_WIDTH, 12, 0)  # 背景を黒に設定
+            pyxel.dither(1.0)
+
+            pyxel.text(259 + (Config.CAMERA_VIEW_WIDTH -len(label) * 4) / 2 , Config.CAMERA_VIEW_HEIGHT , label, 7)
