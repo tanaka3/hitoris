@@ -1,5 +1,5 @@
 class Config:
-    CAMERA = True
+    CAMERA = False
     GHOST = False
 
     SCREEN_WIDTH = 240
@@ -11,3 +11,5 @@ class Config:
 
     CAMERA_WIDTH = 320
     CAMERA_HEIGHT = 240
+
+    DEMO_IDLE_SEC = 120

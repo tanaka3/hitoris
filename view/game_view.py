@@ -42,6 +42,7 @@ class GameView:
 
         # スコア情報を描画
         Renderer.draw_score(game.score, game.level, game.lines_cleared)
+
         
         # カウントダウンが有効な場合はカウントダウンを表示
         if game.countdown_active:
@@ -76,6 +77,10 @@ class GameView:
             pyxel.text(text_x, text_y, game.effect_text, game.effect_color)
         else:
             game.effect_text = ""
+
+        # デモモードの場合
+        if game.is_auto_play:
+            Renderer.draw_autoplay()
             
     
     def _draw_background_grid(self):

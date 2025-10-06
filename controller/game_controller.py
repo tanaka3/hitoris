@@ -1,6 +1,7 @@
 import pyxel
 from key import KeyConfig
 from controller.input_handler import InputHandler
+from controller.auto_player import AutoPlayer
 
 class GameController:
     def __init__(self, game):
@@ -17,10 +18,27 @@ class GameController:
         # DASとARR（Delayed Auto Shift、Auto Repeat Rate）の設定
         self.das = 10  # 最初の入力が効くまでの遅延
         self.arr = 2   # リピート時の間隔
-    
+
+        self.auto = AutoPlayer(self.game)
+
+    def any_pressed(self):
+        return (InputHandler.is_key_down(KeyConfig.LEFT) or
+                InputHandler.is_key_down(KeyConfig.RIGHT) or
+                InputHandler.is_key_down(KeyConfig.DOWN) or
+                InputHandler.is_key_down(KeyConfig.UP) or
+                InputHandler.is_key_pressed(KeyConfig.LEFT_ROTAITION) or
+                InputHandler.is_key_pressed(KeyConfig.RIGHT_ROTAITION) or
+                InputHandler.is_key_pressed(KeyConfig.HOLD))
+
     def handle_input(self):
         """ユーザー入力を処理する"""
         if self.game.is_game_over:
+            self.auto.update()
+            return
+
+        # ▼ デモ（自動プレイ）中はAIに操作を委譲し、人間入力は無視
+        if self.game.is_auto_play:
+            self.auto.update()
             return
 
         if self.game.game_over_triggered:

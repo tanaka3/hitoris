@@ -235,6 +235,7 @@ class Renderer:
         pyxel.text(20, 160, f"LEVEL: {level}", 7)
         pyxel.text(20, 170, f"LINES: {lines}", 7)
     
+    
     @staticmethod
     def draw_game_over(score, level, lines):
         """ゲームオーバー表示を描画する"""
@@ -250,6 +251,20 @@ class Renderer:
 
         text = "PRESS SPACE TO RESTART"
         pyxel.text((pyxel.width - len(text) * 4)/2, 133, "PRESS SPACE TO RESTART", 7)
+
+
+    @staticmethod
+    def draw_autoplay():
+        # 背景を描画（単色の長方形）
+        pyxel.rect(0, 0, pyxel.width, 10, 8)
+
+        text = "DEMO MODE"
+        pyxel.text((pyxel.width - len(text) * 4)/2, 3, text, 7)
+
+        pyxel.rect(0,  pyxel.height - 10, pyxel.width, 10, 8)
+
+        text = "AUTO PLAY"        
+        pyxel.text((pyxel.width - len(text) * 4)/2, pyxel.height -7, text, 7)     
 
     @staticmethod
     def draw_camera(camera=None, shutter = 0):

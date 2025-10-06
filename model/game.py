@@ -64,6 +64,9 @@ class Game:
         #
         self.camera = None
         self.shutter_count = 0
+
+        # 自動プレイモードかどうか
+        self.is_auto_play = False
         
         # ゲーム開始時の初期化
         self.reset()
@@ -92,8 +95,12 @@ class Game:
         self.countdown_timer = 0
         self.inactivity_timer = 0
         self.shutter_count = 0
+        self.is_auto_play = False
     
-    def start(self):
+    def start(self, is_auto_play = False):
+
+        self.is_auto_play = is_auto_play
+
         """ゲームを開始する"""
         # 次のテトロミノを2つ用意
         for _ in range(3):  # 現在のテトロミノ + 次の2つで合計3つ

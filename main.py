@@ -68,10 +68,10 @@ class TetrisApp:
         
 
         elif self.is_title_screen:
-            if InputHandler.is_key_pressed(KeyConfig.START):
+            if InputHandler.is_key_pressed(KeyConfig.START):    
                 pyxel.play(0, 1)
                 self.is_title_screen = False
-                self.game.start()
+                self.game.start(True)
 
             if Config.CAMERA and InputHandler.is_key_pressed(KeyConfig.SELECT):
                 self.mode = "obj" if self.mode == "pose" else "pose"
@@ -85,9 +85,15 @@ class TetrisApp:
             self.title_view.update()
         # ゲーム画面の処理
         else:
+            if self.game.is_auto_play:
+                if self.controller.any_pressed():
+                    self.is_title_screen = True
+                    self.game.reset()
+                    return
+
             self.controller.handle_input()
             self.game.update()
-            
+                
             # ゲームオーバー時はタイトル画面に戻る
             if self.game.is_game_over:
                 self.is_title_screen = True
