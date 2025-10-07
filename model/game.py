@@ -59,7 +59,7 @@ class Game:
         
         # 非アクティブタイマー（操作がない時間を計測）
         self.inactivity_timer = 0
-        self.inactivity_limit = 600  # 10秒 (60フレーム × 10)
+        self.inactivity_limit = Config.GAMEOVER_TIMEOUT_SEC * 60  # 10秒 (60フレーム × 10)
         
         #
         self.camera = None
