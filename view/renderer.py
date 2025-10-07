@@ -231,9 +231,9 @@ class Renderer:
     @staticmethod
     def draw_score(score, level, lines):
         """スコア情報を描画する"""
-        pyxel.text(20, 150, f"SCORE: {score}", 7)
-        pyxel.text(20, 160, f"LEVEL: {level}", 7)
-        pyxel.text(20, 170, f"LINES: {lines}", 7)
+        pyxel.text(10, 150, f"SCORE: {score}", 7)
+        pyxel.text(10, 160, f"LEVEL: {level}", 7)
+        pyxel.text(10, 170, f"LINES: {lines}", 7)
     
     
     @staticmethod

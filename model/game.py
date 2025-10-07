@@ -96,7 +96,8 @@ class Game:
         self.inactivity_timer = 0
         self.shutter_count = 0
         self.is_auto_play = False
-    
+        pyxel.stop()
+        
     def start(self, is_auto_play = False):
 
         self.is_auto_play = is_auto_play
@@ -146,6 +147,7 @@ class Game:
         # 配置できない場合はゲームオーバー
         if not self.board.is_valid_position(self.current_tetromino) and not self.game_over_triggered:
             #self.is_game_over = True
+            self.effect_timer = 0
             self.game_over_triggered = True  # エフェクト用のフラグを設定
             pyxel.stop()
             pyxel.play(0, 7)  # ゲームオーバー効果音

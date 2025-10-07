@@ -28,7 +28,8 @@ class GameController:
                 InputHandler.is_key_down(KeyConfig.UP) or
                 InputHandler.is_key_pressed(KeyConfig.LEFT_ROTAITION) or
                 InputHandler.is_key_pressed(KeyConfig.RIGHT_ROTAITION) or
-                InputHandler.is_key_pressed(KeyConfig.HOLD))
+                InputHandler.is_key_pressed(KeyConfig.HOLD) or
+                InputHandler.is_key_pressed(KeyConfig.START))
 
     def handle_input(self):
         """ユーザー入力を処理する"""

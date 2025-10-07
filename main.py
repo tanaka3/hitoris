@@ -47,6 +47,8 @@ class TetrisApp:
         
         # グローバルアクセス用（エフェクト登録用）
         pyxel.APP = self
+
+        self.idle_timer = 0
         
         # Pyxelのコールバックを設定
         pyxel.run(self.update, self.draw)
@@ -65,13 +67,29 @@ class TetrisApp:
             if self.camera.is_model_loaded():
                 self.is_loading = False
                 self.is_title_screen = True
-        
+                self.idle_timer = 0
 
         elif self.is_title_screen:
+           # 何か入力があったらタイマーをリセット
+            if self.controller.any_pressed():
+                self.idle_timer = 0
+            else:
+                # 入力がない場合はタイマーを進める
+                self.idle_timer += 1
+                
+                # 一定時間経過したらデモモード開始
+                if self.idle_timer >= Config.DEMO_IDLE_SEC * 60:
+                    pyxel.play(0, 1)
+                    self.is_title_screen = False
+                    self.game.start(True)  # オートプレイモードで開始
+                    self.idle_timer = 0
+                    return
+
             if InputHandler.is_key_pressed(KeyConfig.START):    
                 pyxel.play(0, 1)
                 self.is_title_screen = False
                 self.game.start(True)
+                self.idle_timer = 0                
 
             if Config.CAMERA and InputHandler.is_key_pressed(KeyConfig.SELECT):
                 self.mode = "obj" if self.mode == "pose" else "pose"
@@ -81,6 +99,7 @@ class TetrisApp:
                     self.title_view.mode = self.mode
                     self.is_title_screen = False
                     self.is_loading = True
+                    self.idle_timer = 0                    
                 
             self.title_view.update()
         # ゲーム画面の処理
@@ -89,6 +108,7 @@ class TetrisApp:
                 if self.controller.any_pressed():
                     self.is_title_screen = True
                     self.game.reset()
+                    self.idle_timer = 0                    
                     return
 
             self.controller.handle_input()
@@ -98,6 +118,8 @@ class TetrisApp:
             if self.game.is_game_over:
                 self.is_title_screen = True
                 self.game.reset()
+                self.idle_timer = 0                    
+                return                
     
     def draw(self):
         pyxel.cls(0)
