@@ -248,9 +248,8 @@ class Renderer:
         text = f"SCORE: {score}"
         pyxel.text((pyxel.width - len(text) * 4)/2, 118, text, 7)
 
-
-        text = "PRESS SPACE TO RESTART"
-        pyxel.text((pyxel.width - len(text) * 4)/2, 133, "PRESS SPACE TO RESTART", 7)
+        text = "PRESS ANY BUTTON TO CONTINUE"
+        pyxel.text((pyxel.width - len(text) * 4)/2, 133, text, 7)
 
 
     @staticmethod

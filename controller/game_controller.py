@@ -43,7 +43,7 @@ class GameController:
             return
 
         if self.game.game_over_triggered:
-            if InputHandler.is_key_pressed(KeyConfig.START):
+            if self.any_pressed():
                 self.game.is_game_over = True
             return
 
