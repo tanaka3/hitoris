@@ -6,9 +6,6 @@ from view.renderer import Renderer
 
 class GameView:
     
-    ENABLE_CLEAR_PARTICLES = True  # パーティクルエフェクトを有効にするかどうか
-    ENABLE_CLEAR_EFFECT = True  # ライン消去エフェクトを有効にするかどうか
-
     def __init__(self):
         # ライン消去エフェクト用の変数
         self.line_clear_effect = []
@@ -42,6 +39,7 @@ class GameView:
 
         # スコア情報を描画
         Renderer.draw_score(game.score, game.level, game.lines_cleared)
+
         
         # カウントダウンが有効な場合はカウントダウンを表示
         if game.countdown_active:
@@ -76,6 +74,10 @@ class GameView:
             pyxel.text(text_x, text_y, game.effect_text, game.effect_color)
         else:
             game.effect_text = ""
+
+        # デモモードの場合
+        if game.is_auto_play:
+            Renderer.draw_autoplay()
             
     
     def _draw_background_grid(self):
@@ -113,7 +115,7 @@ class GameView:
         
     def add_line_clear_effect(self, y_positions):
         """ライン消去エフェクトを追加"""
-        if not GameView.ENABLE_CLEAR_EFFECT:
+        if not Config.CLEAR_EFFECT:
             return
 
         for y in y_positions:
@@ -124,7 +126,7 @@ class GameView:
             })
             
             # パーティクルも追加
-            if GameView.ENABLE_CLEAR_PARTICLES:
+            if Config.CLEAR_PARTICLES:
                 for _ in range(20):
                     self.particles.append({
                         "x": Renderer.BOARD_X + random.randint(0, 10) * Renderer.BLOCK_SIZE,
@@ -138,7 +140,7 @@ class GameView:
     def _draw_line_clear_effect(self):
         """ライン消去エフェクトを描画"""
 
-        if not GameView.ENABLE_CLEAR_EFFECT:
+        if not Config.CLEAR_EFFECT:
             return
 
         new_effects = []
@@ -162,7 +164,7 @@ class GameView:
 
     def _draw_particles(self):
         """パーティクルエフェクトを描画"""
-        if not GameView.ENABLE_CLEAR_PARTICLES:
+        if not Config.CLEAR_PARTICLES:
             return
         
         new_particles = []

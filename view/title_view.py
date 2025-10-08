@@ -158,7 +158,7 @@ class TitleView:
 
 
         # バージョン情報
-        pyxel.text(pyxel.width - 30, pyxel.height - 10, "v0.0.2", 5)
+        pyxel.text(pyxel.width - 30, pyxel.height - 10, "v0.0.3", 5)
 
     def draw_block_text_centered(self, y, text, block_size):
         total_width = 0
