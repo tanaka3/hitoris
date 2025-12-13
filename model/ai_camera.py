@@ -80,6 +80,8 @@ class AICamera:
         self.shared_tetromino = None
         self.shared_labels = None
         self.shared_boxes = None
+        self.shared_bones = None
+        self.shared_keypoints = None
 
         self.mode = "pose"  # デフォルトを物体検出に変更
 
@@ -185,6 +187,27 @@ class AICamera:
                     lut[r, g, b] = np.argmin(distances)
         return lut
     
+
+    def _map_keypoints_to_view(self, keypoints, src_w, src_h, top, left, min_side):
+        """Poseのキーポイント座標を、表示用(CAMERA_VIEW)座標に変換する。
+        keypoints: (n_person, 17, 3) / (17, 3) のどちらでも可
+        戻り値: (n_person, 17, 3) の numpy 配列（x,yはVIEW座標、confはそのまま）
+        """
+        if keypoints is None:
+            return None
+
+        kps = np.array(keypoints, dtype=np.float32)
+        if kps.ndim == 2:
+            kps = kps.reshape(1, 17, 3)
+
+        scale_x = Config.CAMERA_VIEW_WIDTH / float(min_side)
+        scale_y = Config.CAMERA_VIEW_HEIGHT / float(min_side)
+
+        mapped = kps.copy()
+        mapped[:, :, 0] = (mapped[:, :, 0] - float(left)) * scale_x
+        mapped[:, :, 1] = (mapped[:, :, 1] - float(top)) * scale_y
+        return mapped
+
     # カメラ画像取得 → リサイズ
     def _camera_callback(self, request):
         if self.mode == "pose":
@@ -210,7 +233,9 @@ class AICamera:
         
         if self.shared_tetromino is None:
             self.shared_labels = None
-            self.shared_boxes = None  
+            self.shared_boxes = None
+            self.shared_bones = None
+            self.shared_keypoints = None
 
         # pyxel画像化
         frame = request.make_array("main")
@@ -218,6 +243,13 @@ class AICamera:
         min_side = min(h, w)
         top = (h - min_side) // 2
         left = (w - min_side) // 2
+        # Pose時：キーポイントを表示用(200x200)座標へ変換して共有
+        if self.mode == "pose" and self.last_keypoints is not None:
+            self.shared_keypoints = self._map_keypoints_to_view(
+                self.last_keypoints, w, h, top, left, min_side
+            )
+        else:
+            self.shared_keypoints = None
         cropped = frame[top:top + min_side, left:left + min_side]
         resized = np.array(Image.fromarray(cropped).resize((Config.CAMERA_VIEW_WIDTH, Config.CAMERA_VIEW_HEIGHT), Image.BILINEAR))
 
@@ -551,11 +583,18 @@ class AICamera:
         with self.lock:
             frame = self.shared_frame.copy() if self.shared_frame is not None else None
         return frame
+
     def get_labels(self):
         return self.shared_labels
     
     def get_boxes(self):
         return self.shared_boxes
+    
+    def get_bones(self):
+        return self.shared_bones
+
+    def get_keypoints(self):
+        return self.shared_keypoints
     
     def get_tetromino(self):
         if self.shared_tetromino is None:

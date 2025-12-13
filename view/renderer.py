@@ -235,7 +235,6 @@ class Renderer:
         pyxel.text(10, 160, f"LEVEL: {level}", 7)
         pyxel.text(10, 170, f"LINES: {lines}", 7)
     
-    
     @staticmethod
     def draw_game_over(score, level, lines):
         """ゲームオーバー表示を描画する"""
@@ -251,7 +250,6 @@ class Renderer:
         text = "PRESS ANY BUTTON TO CONTINUE"
         pyxel.text((pyxel.width - len(text) * 4)/2, 133, text, 7)
 
-
     @staticmethod
     def draw_autoplay():
         # 背景を描画（単色の長方形）
@@ -263,7 +261,7 @@ class Renderer:
         pyxel.rect(0,  pyxel.height - 10, pyxel.width, 10, 8)
 
         text = "AUTO PLAY"        
-        pyxel.text((pyxel.width - len(text) * 4)/2, pyxel.height -7, text, 7)     
+        pyxel.text((pyxel.width - len(text) * 4)/2, pyxel.height -7, text, 7)
 
     @staticmethod
     def draw_camera(camera=None, shutter = 0):
@@ -286,6 +284,129 @@ class Renderer:
                     pyxel.pset(offset_x + x, offset_y + y, int(indexed[y, x]))
 
         pyxel.rectb(offset_x - 2, offset_y - 2, 202, 202, 7)
+
+        # =========================================================
+        # Pose: bones(白) & keypoints(緑) を表示
+        # - 0:鼻,1:左目,2:右目,3:左耳,4:右耳 は描画しない
+        # - 線分は view(200x200) をはみ出しても、見える部分だけ描く（クリッピング）
+        # =========================================================
+        kps = None
+        try:
+            kps = camera.get_keypoints()
+        except:
+            kps = None
+
+        view_w = Config.CAMERA_VIEW_WIDTH
+        view_h = Config.CAMERA_VIEW_HEIGHT
+
+        # Cohen–Sutherland line clipping for rectangle [0..view_w-1] x [0..view_h-1]
+        XMIN, YMIN, XMAX, YMAX = 0, 0, view_w - 1, view_h - 1
+        INSIDE = 0
+        LEFT = 1
+        RIGHT = 2
+        TOP = 4
+        BOTTOM = 8
+
+        def _out_code(x, y):
+            code = INSIDE
+            if x < XMIN:
+                code |= LEFT
+            elif x > XMAX:
+                code |= RIGHT
+            if y < YMIN:
+                code |= TOP
+            elif y > YMAX:
+                code |= BOTTOM
+            return code
+
+        def _clip_line(x0, y0, x1, y1):
+            out0 = _out_code(x0, y0)
+            out1 = _out_code(x1, y1)
+
+            while True:
+                if (out0 | out1) == 0:
+                    return True, x0, y0, x1, y1
+                if (out0 & out1) != 0:
+                    return False, 0, 0, 0, 0
+
+                out = out0 if out0 != 0 else out1
+                dx = x1 - x0
+                dy = y1 - y0
+
+                if out & TOP:
+                    if dy == 0:
+                        return False, 0, 0, 0, 0
+                    t = (YMIN - y0) / dy
+                    x = x0 + t * dx
+                    y = YMIN
+                elif out & BOTTOM:
+                    if dy == 0:
+                        return False, 0, 0, 0, 0
+                    t = (YMAX - y0) / dy
+                    x = x0 + t * dx
+                    y = YMAX
+                elif out & RIGHT:
+                    if dx == 0:
+                        return False, 0, 0, 0, 0
+                    t = (XMAX - x0) / dx
+                    x = XMAX
+                    y = y0 + t * dy
+                else:  # LEFT
+                    if dx == 0:
+                        return False, 0, 0, 0, 0
+                    t = (XMIN - x0) / dx
+                    x = XMIN
+                    y = y0 + t * dy
+
+                if out == out0:
+                    x0, y0 = x, y
+                    out0 = _out_code(x0, y0)
+                else:
+                    x1, y1 = x, y
+                    out1 = _out_code(x1, y1)
+
+        def _inside_view(x, y):
+            return 0 <= x < view_w and 0 <= y < view_h
+
+        if kps is not None:
+            # 顔なしの骨接続（COCO 17 keypoints）
+            POSE_BONES = [
+                (5, 6),             # shoulders
+                (5, 7), (7, 9),     # left arm
+                (6, 8), (8, 10),    # right arm
+                (5, 11), (6, 12),   # torso
+                (11, 12),           # hips
+                (11, 13), (13, 15), # left leg
+                (12, 14), (14, 16), # right leg
+            ]
+
+            conf_th = 0.4
+
+            for person in kps:
+                # bones: white（クリップして描画）
+                for a, b in POSE_BONES:
+                    xa, ya, ca = person[a]
+                    xb, yb, cb = person[b]
+                    if ca < conf_th or cb < conf_th:
+                        continue
+
+                    ok, cx0, cy0, cx1, cy1 = _clip_line(float(xa), float(ya), float(xb), float(yb))
+                    if ok:
+                        pyxel.line(
+                            offset_x + int(cx0), offset_y + int(cy0),
+                            offset_x + int(cx1), offset_y + int(cy1),
+                            7
+                        )
+
+                # points: green（5-16 only、画面内のみ）
+                for i in range(5, 17):
+                    x, y, c = person[i]
+                    if c < conf_th:
+                        continue
+                    px = int(x)
+                    py = int(y)
+                    if _inside_view(px, py):
+                        pyxel.circ(offset_x + px, offset_y + py, 2, 11)
 
         # 認識しているテトロミノを表示
         tetromino = camera.get_tetromino()
