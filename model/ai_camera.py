@@ -88,6 +88,11 @@ class AICamera:
         self.imx500 = None
         self.picam2 = None
 
+        # デバッグ出力用
+        self.debug_pose_print = True
+        self.debug_pose_print_interval = 0.5  # 秒（出力間隔）
+        self._last_debug_pose_print_time = 0.0
+
         self._set_model(self.mode)
 
             # 高速化のための事前定義済み配置パターン
@@ -261,7 +266,7 @@ class AICamera:
         np_outputs = self.imx500.get_outputs(metadata=metadata, add_batch=True)
         if np_outputs is not None:
             keypoints, scores, boxes = postprocess_higherhrnet(outputs=np_outputs,
-                                                            img_size=(Config.CAMERA_WIDTH, Config.CAMERA_HEIGHT),
+                                                            img_size=(Config.CAMERA_HEIGHT, Config.CAMERA_WIDTH),
                                                             img_w_pad=(0, 0),
                                                             img_h_pad=(0, 0),
                                                             detection_threshold=AICamera.DETECTION_THRESHOLD,
@@ -272,6 +277,7 @@ class AICamera:
                 self.last_boxes = [np.array(b) for b in boxes]
                 self.last_scores = np.array(scores)
                 self.last_detected_time = time.time()
+                #self._debug_print_pose()                
         else:
             if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
                 self.last_keypoints = None
@@ -602,3 +608,51 @@ class AICamera:
 
         tetromino = self.shared_tetromino.copy()
         return tetromino
+    
+    def _debug_print_pose(self):
+        """認識した人物情報をprint（間引きあり）"""
+        if not getattr(self, "debug_pose_print", False):
+            return
+        now = time.time()
+        if now - getattr(self, "_last_debug_pose_print_time", 0.0) < getattr(self, "debug_pose_print_interval", 0.5):
+            return
+        self._last_debug_pose_print_time = now
+
+        kps = self.last_keypoints
+        scores = self.last_scores
+        boxes = self.last_boxes
+
+        if kps is None or scores is None or len(scores) == 0:
+            print("[POSE] no person")
+            return
+
+        n = len(scores)
+        print(f"[POSE] persons={n}")
+
+        # COCO keypoint index (顔 0-4 は不要なので 5-16 を中心に見る)
+        kp_names = {
+            5: "L_shoulder", 6: "R_shoulder",
+            7: "L_elbow", 8: "R_elbow",
+            9: "L_wrist", 10: "R_wrist",
+            11: "L_hip", 12: "R_hip",
+            13: "L_knee", 14: "R_knee",
+            15: "L_ankle", 16: "R_ankle",
+        }
+
+        for i in range(n):
+            sc = float(scores[i]) if scores is not None else 0.0
+            box = boxes[i] if boxes is not None and i < len(boxes) else None
+
+            if box is not None:
+                # boxの形式は postprocess 側の戻りに依存（[x,y,w,h] or [x1,y1,x2,y2] 等）
+                print(f"  - person[{i}] score={sc:.2f} box={np.array(box).astype(int).tolist()}")
+            else:
+                print(f"  - person[{i}] score={sc:.2f}")
+
+            person = kps[i]  # (17,3)
+            # 主要点だけ表示（信頼度つき）
+            parts = []
+            for idx in range(5, 17):
+                x, y, c = person[idx]
+                parts.append(f"{kp_names[idx]}=({int(x)},{int(y)},{c:.2f})")
+            print("    " + " ".join(parts))

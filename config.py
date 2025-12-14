@@ -3,7 +3,8 @@ class Config:
     GHOST = False   # ゴースト機能を有効にするか
     CLEAR_PARTICLES = True  # パーティクルエフェクトを有効にするかどうか
     CLEAR_EFFECT = True  # ライン消去エフェクトを有効にするかどうか
-
+    SHOW_BONE = True   # False にするとボーン非表示
+    
     # ゲームのスクリーンサイズ
     SCREEN_WIDTH = 240
     SCREEN_HEIGHT = 240
