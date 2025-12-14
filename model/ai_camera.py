@@ -217,13 +217,29 @@ class AICamera:
     def _camera_callback(self, request):
         if self.mode == "pose":
             boxes, scores, keypoints = self._ai_output_tensor_parse_pose(request.get_metadata())
+
             with MappedArray(request, stream='main') as m:
-                # キーポイントからブロックを生成して描画
+                # キーポイントからブロックを生成
                 if keypoints is not None and len(keypoints) > 0:
                     img_height, img_width = m.array.shape[:2]
-                    self.shared_tetromino = self._create_occupancy_grid(keypoints, img_width, img_height)
+
+                    # 表示と同じ中央正方形クロップ領域
+                    crop_size = min(img_height, img_width)
+                    top = (img_height - crop_size) // 2
+                    left = (img_width - crop_size) // 2
+
+                    # Configでブロック生成範囲を切り替え
+                    use_center = (getattr(Config, "BLOCK_TARGET", "center") == "center")
+
+                    self.shared_tetromino = self._create_occupancy_grid(
+                        keypoints,
+                        img_width,
+                        img_height,
+                        center_rect=(left, top, crop_size) if use_center else None
+                    )
                 else:
                     self.shared_tetromino = None
+
         else:
             # 物体検出の場合
             detected_objects = self._ai_output_tensor_parse_objects(request.get_metadata())
@@ -235,7 +251,7 @@ class AICamera:
             else:
                 if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
                     self.shared_tetromino = None
-        
+
         if self.shared_tetromino is None:
             self.shared_labels = None
             self.shared_boxes = None
@@ -248,15 +264,20 @@ class AICamera:
         min_side = min(h, w)
         top = (h - min_side) // 2
         left = (w - min_side) // 2
-        # Pose時：キーポイントを表示用(200x200)座標へ変換して共有
+
+        # Pose時：キーポイントを表示用(200x200)座標へ変換して共有（描画用）
         if self.mode == "pose" and self.last_keypoints is not None:
             self.shared_keypoints = self._map_keypoints_to_view(
                 self.last_keypoints, w, h, top, left, min_side
             )
         else:
             self.shared_keypoints = None
+
         cropped = frame[top:top + min_side, left:left + min_side]
-        resized = np.array(Image.fromarray(cropped).resize((Config.CAMERA_VIEW_WIDTH, Config.CAMERA_VIEW_HEIGHT), Image.BILINEAR))
+        resized = np.array(Image.fromarray(cropped).resize(
+            (Config.CAMERA_VIEW_WIDTH, Config.CAMERA_VIEW_HEIGHT),
+            Image.BILINEAR
+        ))
 
         with self.lock:
             self.shared_frame = resized
@@ -533,42 +554,68 @@ class AICamera:
         
         return grid_x, grid_y
         
-    def _create_occupancy_grid(self, keypoints, img_width, img_height):
-        """複数の人物のキーポイントからグリッドの占有状態を作成"""
-        # 4x4のグリッドを初期化（すべて0）
+    def _create_occupancy_grid(self, keypoints, img_width, img_height, center_rect=None):
+        """
+        複数の人物のキーポイントからグリッドの占有状態を作成
+
+        center_rect:
+        None -> 全画面対象（方式1）
+        (left, top, size) -> センター正方形内のみ対象（方式2）
+        """
         grid = np.zeros((AICamera.GRID_SIZE, AICamera.GRID_SIZE), dtype=np.int32)
-        
         valid_keypoints_found = False
-        
-        # すべての人物のキーポイントを処理
+
+        if center_rect is not None:
+            left, top, size = center_rect
+
+        # すべての人物のキーポイントを処理（同じ4x4に重ねる）
         for person_kp in keypoints:
             for i, kp in enumerate(person_kp):
-                # 信頼度が閾値以上のキーポイントのみ処理
-                if kp[2] >= AICamera.KEYPOINT_THRESHOLD:
-                    # 顔のキーポイント（0-4）の場合は鼻（0）のみ使用
-                    if i <= 4:
-                        if i == 0:  # 鼻のみ処理
-                            grid_x, grid_y = self._get_grid_position(kp, img_width, img_height)
-                            grid[grid_y, grid_x] = 1
-                            valid_keypoints_found = True
-                    else:  # 体のキーポイント
-                        grid_x, grid_y = self._get_grid_position(kp, img_width, img_height)
-                        grid[grid_y, grid_x] = 1
-                        valid_keypoints_found = True
+                x, y, confidence = kp
 
-        # 有効なキーポイントが見つからなかった場合はNoneを返す
+                # 信頼度が閾値以上のキーポイントのみ処理
+                if confidence < AICamera.KEYPOINT_THRESHOLD:
+                    continue
+
+                # 顔のキーポイント（0-4）の場合は鼻（0）のみ使用
+                if i <= 4 and i != 0:
+                    continue
+
+                # --- 方式2：センター内のみ ---
+                if center_rect is not None:
+                    if not (left <= x < left + size and top <= y < top + size):
+                        continue
+
+                    # センター領域内で正規化→4x4
+                    nx = (x - left) / float(size)  # 0..1
+                    ny = (y - top) / float(size)   # 0..1
+                    grid_x = min(int(nx * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+                    grid_y = min(int(ny * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+
+                # --- 方式1：全画面 ---
+                else:
+                    # 全画面で正規化→4x4
+                    norm_x = min(max(x / float(img_width), 0.0), 1.0)
+                    norm_y = min(max(y / float(img_height), 0.0), 1.0)
+                    grid_x = min(int(norm_x * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+                    grid_y = min(int(norm_y * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+
+                grid[grid_y, grid_x] = 1
+                valid_keypoints_found = True
+
+        # 有効なキーポイントが見つからなかった場合はNone/保持
         if not valid_keypoints_found or np.sum(grid) == 0:
             if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
-                return None                 
-            return self.shared_tetromino  
+                return None
+            return self.shared_tetromino
 
         rotations = self._create_rotations(grid)
         tetromino = Tetromino(rotations, 7 + random.choice(list(range(7))))
-    
-        # 現状と同じ場合
+
+        # 現状と同じ場合はタイプ維持（色チラつき防止）
         if self.shared_tetromino is not None and self.shared_tetromino.equals_current_shape(tetromino):
             tetromino.type = self.shared_tetromino.type
-        
+
         return tetromino
     
     def _create_rotations(self, grid):
