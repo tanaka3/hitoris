@@ -80,11 +80,18 @@ class AICamera:
         self.shared_tetromino = None
         self.shared_labels = None
         self.shared_boxes = None
+        self.shared_bones = None
+        self.shared_keypoints = None
 
         self.mode = "pose"  # デフォルトを物体検出に変更
 
         self.imx500 = None
         self.picam2 = None
+
+        # デバッグ出力用
+        self.debug_pose_print = True
+        self.debug_pose_print_interval = 0.5  # 秒（出力間隔）
+        self._last_debug_pose_print_time = 0.0
 
         self._set_model(self.mode)
 
@@ -185,17 +192,54 @@ class AICamera:
                     lut[r, g, b] = np.argmin(distances)
         return lut
     
+
+    def _map_keypoints_to_view(self, keypoints, src_w, src_h, top, left, min_side):
+        """Poseのキーポイント座標を、表示用(CAMERA_VIEW)座標に変換する。
+        keypoints: (n_person, 17, 3) / (17, 3) のどちらでも可
+        戻り値: (n_person, 17, 3) の numpy 配列（x,yはVIEW座標、confはそのまま）
+        """
+        if keypoints is None:
+            return None
+
+        kps = np.array(keypoints, dtype=np.float32)
+        if kps.ndim == 2:
+            kps = kps.reshape(1, 17, 3)
+
+        scale_x = Config.CAMERA_VIEW_WIDTH / float(min_side)
+        scale_y = Config.CAMERA_VIEW_HEIGHT / float(min_side)
+
+        mapped = kps.copy()
+        mapped[:, :, 0] = (mapped[:, :, 0] - float(left)) * scale_x
+        mapped[:, :, 1] = (mapped[:, :, 1] - float(top)) * scale_y
+        return mapped
+
     # カメラ画像取得 → リサイズ
     def _camera_callback(self, request):
         if self.mode == "pose":
             boxes, scores, keypoints = self._ai_output_tensor_parse_pose(request.get_metadata())
+
             with MappedArray(request, stream='main') as m:
-                # キーポイントからブロックを生成して描画
+                # キーポイントからブロックを生成
                 if keypoints is not None and len(keypoints) > 0:
                     img_height, img_width = m.array.shape[:2]
-                    self.shared_tetromino = self._create_occupancy_grid(keypoints, img_width, img_height)
+
+                    # 表示と同じ中央正方形クロップ領域
+                    crop_size = min(img_height, img_width)
+                    top = (img_height - crop_size) // 2
+                    left = (img_width - crop_size) // 2
+
+                    # Configでブロック生成範囲を切り替え
+                    use_center = (getattr(Config, "BLOCK_TARGET", "center") == "center")
+
+                    self.shared_tetromino = self._create_occupancy_grid(
+                        keypoints,
+                        img_width,
+                        img_height,
+                        center_rect=(left, top, crop_size) if use_center else None
+                    )
                 else:
                     self.shared_tetromino = None
+
         else:
             # 物体検出の場合
             detected_objects = self._ai_output_tensor_parse_objects(request.get_metadata())
@@ -207,10 +251,12 @@ class AICamera:
             else:
                 if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
                     self.shared_tetromino = None
-        
+
         if self.shared_tetromino is None:
             self.shared_labels = None
-            self.shared_boxes = None  
+            self.shared_boxes = None
+            self.shared_bones = None
+            self.shared_keypoints = None
 
         # pyxel画像化
         frame = request.make_array("main")
@@ -218,8 +264,20 @@ class AICamera:
         min_side = min(h, w)
         top = (h - min_side) // 2
         left = (w - min_side) // 2
+
+        # Pose時：キーポイントを表示用(200x200)座標へ変換して共有（描画用）
+        if self.mode == "pose" and self.last_keypoints is not None:
+            self.shared_keypoints = self._map_keypoints_to_view(
+                self.last_keypoints, w, h, top, left, min_side
+            )
+        else:
+            self.shared_keypoints = None
+
         cropped = frame[top:top + min_side, left:left + min_side]
-        resized = np.array(Image.fromarray(cropped).resize((Config.CAMERA_VIEW_WIDTH, Config.CAMERA_VIEW_HEIGHT), Image.BILINEAR))
+        resized = np.array(Image.fromarray(cropped).resize(
+            (Config.CAMERA_VIEW_WIDTH, Config.CAMERA_VIEW_HEIGHT),
+            Image.BILINEAR
+        ))
 
         with self.lock:
             self.shared_frame = resized
@@ -229,7 +287,7 @@ class AICamera:
         np_outputs = self.imx500.get_outputs(metadata=metadata, add_batch=True)
         if np_outputs is not None:
             keypoints, scores, boxes = postprocess_higherhrnet(outputs=np_outputs,
-                                                            img_size=(Config.CAMERA_WIDTH, Config.CAMERA_HEIGHT),
+                                                            img_size=(Config.CAMERA_HEIGHT, Config.CAMERA_WIDTH),
                                                             img_w_pad=(0, 0),
                                                             img_h_pad=(0, 0),
                                                             detection_threshold=AICamera.DETECTION_THRESHOLD,
@@ -240,6 +298,7 @@ class AICamera:
                 self.last_boxes = [np.array(b) for b in boxes]
                 self.last_scores = np.array(scores)
                 self.last_detected_time = time.time()
+                #self._debug_print_pose()                
         else:
             if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
                 self.last_keypoints = None
@@ -495,42 +554,68 @@ class AICamera:
         
         return grid_x, grid_y
         
-    def _create_occupancy_grid(self, keypoints, img_width, img_height):
-        """複数の人物のキーポイントからグリッドの占有状態を作成"""
-        # 4x4のグリッドを初期化（すべて0）
+    def _create_occupancy_grid(self, keypoints, img_width, img_height, center_rect=None):
+        """
+        複数の人物のキーポイントからグリッドの占有状態を作成
+
+        center_rect:
+        None -> 全画面対象（方式1）
+        (left, top, size) -> センター正方形内のみ対象（方式2）
+        """
         grid = np.zeros((AICamera.GRID_SIZE, AICamera.GRID_SIZE), dtype=np.int32)
-        
         valid_keypoints_found = False
-        
-        # すべての人物のキーポイントを処理
+
+        if center_rect is not None:
+            left, top, size = center_rect
+
+        # すべての人物のキーポイントを処理（同じ4x4に重ねる）
         for person_kp in keypoints:
             for i, kp in enumerate(person_kp):
-                # 信頼度が閾値以上のキーポイントのみ処理
-                if kp[2] >= AICamera.KEYPOINT_THRESHOLD:
-                    # 顔のキーポイント（0-4）の場合は鼻（0）のみ使用
-                    if i <= 4:
-                        if i == 0:  # 鼻のみ処理
-                            grid_x, grid_y = self._get_grid_position(kp, img_width, img_height)
-                            grid[grid_y, grid_x] = 1
-                            valid_keypoints_found = True
-                    else:  # 体のキーポイント
-                        grid_x, grid_y = self._get_grid_position(kp, img_width, img_height)
-                        grid[grid_y, grid_x] = 1
-                        valid_keypoints_found = True
+                x, y, confidence = kp
 
-        # 有効なキーポイントが見つからなかった場合はNoneを返す
+                # 信頼度が閾値以上のキーポイントのみ処理
+                if confidence < AICamera.KEYPOINT_THRESHOLD:
+                    continue
+
+                # 顔のキーポイント（0-4）の場合は鼻（0）のみ使用
+                if i <= 4 and i != 0:
+                    continue
+
+                # --- 方式2：センター内のみ ---
+                if center_rect is not None:
+                    if not (left <= x < left + size and top <= y < top + size):
+                        continue
+
+                    # センター領域内で正規化→4x4
+                    nx = (x - left) / float(size)  # 0..1
+                    ny = (y - top) / float(size)   # 0..1
+                    grid_x = min(int(nx * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+                    grid_y = min(int(ny * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+
+                # --- 方式1：全画面 ---
+                else:
+                    # 全画面で正規化→4x4
+                    norm_x = min(max(x / float(img_width), 0.0), 1.0)
+                    norm_y = min(max(y / float(img_height), 0.0), 1.0)
+                    grid_x = min(int(norm_x * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+                    grid_y = min(int(norm_y * AICamera.GRID_SIZE), AICamera.GRID_SIZE - 1)
+
+                grid[grid_y, grid_x] = 1
+                valid_keypoints_found = True
+
+        # 有効なキーポイントが見つからなかった場合はNone/保持
         if not valid_keypoints_found or np.sum(grid) == 0:
             if time.time() - self.last_detected_time > AICamera.BLOCK_TIMEOUT:
-                return None                 
-            return self.shared_tetromino  
+                return None
+            return self.shared_tetromino
 
         rotations = self._create_rotations(grid)
         tetromino = Tetromino(rotations, 7 + random.choice(list(range(7))))
-    
-        # 現状と同じ場合
+
+        # 現状と同じ場合はタイプ維持（色チラつき防止）
         if self.shared_tetromino is not None and self.shared_tetromino.equals_current_shape(tetromino):
             tetromino.type = self.shared_tetromino.type
-        
+
         return tetromino
     
     def _create_rotations(self, grid):
@@ -551,11 +636,18 @@ class AICamera:
         with self.lock:
             frame = self.shared_frame.copy() if self.shared_frame is not None else None
         return frame
+
     def get_labels(self):
         return self.shared_labels
     
     def get_boxes(self):
         return self.shared_boxes
+    
+    def get_bones(self):
+        return self.shared_bones
+
+    def get_keypoints(self):
+        return self.shared_keypoints
     
     def get_tetromino(self):
         if self.shared_tetromino is None:
@@ -563,3 +655,51 @@ class AICamera:
 
         tetromino = self.shared_tetromino.copy()
         return tetromino
+    
+    def _debug_print_pose(self):
+        """認識した人物情報をprint（間引きあり）"""
+        if not getattr(self, "debug_pose_print", False):
+            return
+        now = time.time()
+        if now - getattr(self, "_last_debug_pose_print_time", 0.0) < getattr(self, "debug_pose_print_interval", 0.5):
+            return
+        self._last_debug_pose_print_time = now
+
+        kps = self.last_keypoints
+        scores = self.last_scores
+        boxes = self.last_boxes
+
+        if kps is None or scores is None or len(scores) == 0:
+            print("[POSE] no person")
+            return
+
+        n = len(scores)
+        print(f"[POSE] persons={n}")
+
+        # COCO keypoint index (顔 0-4 は不要なので 5-16 を中心に見る)
+        kp_names = {
+            5: "L_shoulder", 6: "R_shoulder",
+            7: "L_elbow", 8: "R_elbow",
+            9: "L_wrist", 10: "R_wrist",
+            11: "L_hip", 12: "R_hip",
+            13: "L_knee", 14: "R_knee",
+            15: "L_ankle", 16: "R_ankle",
+        }
+
+        for i in range(n):
+            sc = float(scores[i]) if scores is not None else 0.0
+            box = boxes[i] if boxes is not None and i < len(boxes) else None
+
+            if box is not None:
+                # boxの形式は postprocess 側の戻りに依存（[x,y,w,h] or [x1,y1,x2,y2] 等）
+                print(f"  - person[{i}] score={sc:.2f} box={np.array(box).astype(int).tolist()}")
+            else:
+                print(f"  - person[{i}] score={sc:.2f}")
+
+            person = kps[i]  # (17,3)
+            # 主要点だけ表示（信頼度つき）
+            parts = []
+            for idx in range(5, 17):
+                x, y, c = person[idx]
+                parts.append(f"{kp_names[idx]}=({int(x)},{int(y)},{c:.2f})")
+            print("    " + " ".join(parts))

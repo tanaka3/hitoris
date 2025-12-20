@@ -1,9 +1,14 @@
 class Config:
-    CAMERA = False  # カメラ機能を有効にするか
+    CAMERA = True  # カメラ機能を有効にするか
     GHOST = False   # ゴースト機能を有効にするか
     CLEAR_PARTICLES = True  # パーティクルエフェクトを有効にするかどうか
     CLEAR_EFFECT = True  # ライン消去エフェクトを有効にするかどうか
-
+    SHOW_BONE = True   # False にするとボーン非表示
+    # ブロック生成の範囲
+    # "full"   : 画面全体を対象（1）
+    # "center" : センター正方形（表示に使う中央クロップ）だけ対象（2）
+    BLOCK_TARGET = "center"
+    
     # ゲームのスクリーンサイズ
     SCREEN_WIDTH = 240
     SCREEN_HEIGHT = 240
@@ -32,5 +37,3 @@ class Config:
     AUTO_MOVE_DELAY = 10   # 横移動・回転の遅延（推奨: 2-5）
     AUTO_DROP_DELAY = 10   # ドロップ前の待機時間（推奨: 5-15）
     AUTO_SPAWN_DELAY = 10  # 新ピース出現時の待機時間（推奨: 5-15）
-
- 
